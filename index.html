@@ -1,0 +1,268 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Word Choice Task with Feedback</title>
+  <script src="https://cdn.jsdelivr.net/npm/jspsych@6.3.1/jspsych.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspsych@6.3.1/plugins/jspsych-html-keyboard-response.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspsych@6.3.1/plugins/jspsych-survey-html-form.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/jspsych@6.3.1/css/jspsych.css" rel="stylesheet"/>
+  <style>
+    .word-button {
+      font-size: 28px;
+      padding: 15px;
+      margin: 10px;
+      border: 2px solid #ccc;
+      border-radius: 10px;
+      background-color: white;
+      cursor: pointer;
+      transition: background-color 0.2s, border-color 0.2s;
+      display: inline-block;
+    }
+    .word-button.selected {
+      background-color: #cce5ff;
+      border-color: #66b3ff;
+    }
+    .button-container {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    #continue-btn {
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+      font-size: 20px;
+      padding: 10px 20px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body></body>
+<script>
+function encodeToBase64Unicode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  bytes.forEach((b) => binary += String.fromCharCode(b));
+  return btoa(binary);
+}
+
+function saveToSupabase(pid, csvContent) {
+  const base64csv = encodeToBase64Unicode(csvContent);
+  fetch("https://rtlfieskeywnnicmmjcs.supabase.co/rest/v1/experiment_data", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": "YOUR_API_KEY",
+      "Authorization": "Bearer YOUR_BEARER_TOKEN",
+      "Prefer": "return=representation"
+    },
+    body: JSON.stringify({
+      participant_id: pid,
+      data_base64: base64csv,
+      filename: "orto_" + pid + ".csv"
+    })
+  })
+  .then(res => res.text())
+  .then(text => console.log("✅ Supabase response:", text))
+  .catch(error => console.error("❌ Supabase upload error:", error));
+}
+
+function createTrialWithFeedback(row) {
+  const word1 = row.Word1;
+  const word2 = row.Word2;
+  const incorrectIndex = parseInt(row.Correct);
+  return {
+    type: 'html-keyboard-response',
+    stimulus: function () {
+      return `<div class="button-container">
+                <div class="word-button" data-value="${word1}" data-index="1">${word1}</div>
+                <div class="word-button" data-value="${word2}" data-index="2">${word2}</div>
+              </div>
+              <button id="continue-btn" disabled>DALEJ</button>
+              <div id="feedback" style="text-align:center; font-size: 24px; margin-top: 15px;"></div>`;
+    },
+    choices: jsPsych.NO_KEYS,
+    on_load: function () {
+      let selected = new Set();
+      const buttons = document.querySelectorAll('.word-button');
+      const continueBtn = document.getElementById('continue-btn');
+      buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          selected.clear();
+          buttons.forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selected.add(btn.getAttribute('data-value'));
+          continueBtn.disabled = selected.size !== 1;
+        });
+      });
+      continueBtn.addEventListener('click', () => {
+        const currentTime = jsPsych.totalTime();
+        const allData = jsPsych.data.get().values();
+        const previousTime = allData.length > 0 ? allData[allData.length - 1].time_elapsed : 0;
+        const RT = currentTime - previousTime;
+        const selectedWord = Array.from(selected)[0];
+        const correctWord = [word1, word2][parseInt(row.Correct) - 1];
+        const trialCorrect = selectedWord === correctWord;
+        const feedbackDiv = document.getElementById('feedback');
+        feedbackDiv.textContent = trialCorrect ? 'Dobrze' : 'Niepoprawnie';
+        feedbackDiv.style.color = trialCorrect ? 'green' : 'red';
+        setTimeout(() => {
+          jsPsych.finishTrial({
+            RT: RT,
+            selected: selectedWord,
+            correct_index: incorrectIndex,
+            correct_word: correctWord,
+            trial_correct: trialCorrect,
+          });
+        }, 1500);
+      });
+    }
+  };
+}
+
+function createTrialNoFeedback(row) {
+  const word1 = row.Word1;
+  const word2 = row.Word2;
+  const incorrectIndex = parseInt(row.Correct);
+  return {
+    type: 'html-keyboard-response',
+    stimulus: function () {
+      return `<div class="button-container">
+                <div class="word-button" data-value="${word1}" data-index="1">${word1}</div>
+                <div class="word-button" data-value="${word2}" data-index="2">${word2}</div>
+              </div>
+              <button id="continue-btn" disabled>DALEJ</button>`;
+    },
+    choices: jsPsych.NO_KEYS,
+    on_load: function () {
+      let selected = new Set();
+      const buttons = document.querySelectorAll('.word-button');
+      const continueBtn = document.getElementById('continue-btn');
+      buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          selected.clear();
+          buttons.forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selected.add(btn.getAttribute('data-value'));
+          continueBtn.disabled = selected.size !== 1;
+        });
+      });
+      continueBtn.addEventListener('click', () => {
+        const currentTime = jsPsych.totalTime();
+        const allData = jsPsych.data.get().values();
+        const previousTime = allData.length > 0 ? allData[allData.length - 1].time_elapsed : 0;
+        const RT = currentTime - previousTime;
+        const selectedWord = Array.from(selected)[0];
+        const correctWord = [word1, word2][parseInt(row.Correct) - 1];
+        const trialCorrect = selectedWord === correctWord;
+        jsPsych.finishTrial({
+          RT: RT,
+          selected: selectedWord,
+          correct_index: incorrectIndex,
+          correct_word: correctWord,
+          trial_correct: trialCorrect,
+        });
+      });
+    }
+  };
+}
+
+let timeline = [];
+
+timeline.push({
+  type: 'survey-html-form',
+  button_label: 'DALEJ',
+  preamble: '<p style="font-size: 24px; font-weight: bold;">Identyfikator osoby badanej</p>',
+  html: '<div style="text-align:center;"><input name="participant_id" type="text" required style="font-size:18px; padding:8px; margin-bottom: 20px;" /></div>',
+  on_finish: function(data) {
+    jsPsych.data.addProperties({ participant_id: data.response.participant_id });
+  }
+});
+
+Promise.all([
+  fetch('words_all_final.csv').then(res => res.text()),
+  fetch('words_all_final2.csv').then(res => res.text())
+])
+.then(([taskCSV, instructionCSV]) => {
+  const taskData = Papa.parse(taskCSV, { header: true }).data;
+  const instructionData = Papa.parse(instructionCSV, { header: true }).data;
+
+  const example = instructionData.find(row => row.Phase === "Training" && row.Word1 && row.Word2);
+  const exampleHTML = example ? `
+    <div class="button-container" style="margin-top: 10px; margin-bottom: 30px;">
+      <div class="word-button selected" style="pointer-events: none;">${example.Word1}</div>
+      <div class="word-button" style="pointer-events: none;">${example.Word2}</div>
+    </div>` : '';
+
+  timeline.push({
+    type: 'html-keyboard-response',
+    stimulus: function () {
+      return `
+        <div style="text-align:center;">
+          <img src="intro.jpg" width="800" style="margin-bottom: 40px;" alt="Intro Image">
+          ${exampleHTML}
+          <button onclick="jsPsych.finishTrial()" style="font-size: 24px; padding: 10px 25px;">DALEJ</button>
+        </div>
+      `;
+    },
+    choices: jsPsych.NO_KEYS
+  });
+
+  let trainingIndex = 0;
+  taskData.forEach(row => {
+    if (row.Word1 && row.Word2 && row.Correct) {
+      if (row.Phase === "Training") {
+        if (trainingIndex > 0 && trainingIndex < 3) timeline.push(createTrialWithFeedback(row));
+        trainingIndex++;
+      } else if (row.Phase === "Experiment") {
+        if (!window.startInserted) {
+          timeline.push({
+            type: 'html-keyboard-response',
+            stimulus: '<div style="text-align: center;"><button onclick="jsPsych.finishTrial()" style="font-size: 24px; padding: 15px 30px;">START</button></div>',
+            choices: jsPsych.NO_KEYS
+          });
+          window.startInserted = true;
+        }
+        timeline.push(createTrialNoFeedback(row));
+      }
+    }
+  });
+
+  timeline.push({
+    type: 'html-keyboard-response',
+    stimulus: '<p style="font-size: 32px;">KONIEC TESTU</p>',
+    choices: jsPsych.NO_KEYS,
+    trial_duration: 2000
+  });
+
+  jsPsych.init({
+    timeline: timeline,
+    on_finish: function() {
+      const dataset = jsPsych.data.get();
+      dataset.values().forEach(trial => {
+        trial.trial_correct = trial.trial_correct ? 1 : 0;
+      });
+
+      const csvFiltered = dataset.ignore([
+        'stimulus', 'response', 'trial_type', 'participant', 'rt', 'internal_node_id'
+      ]).csv();
+
+      const blob = new Blob([csvFiltered], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const pid = dataset.values()[0].participant_id || 'unknown';
+      a.download = 'orto_' + pid + '.csv';
+      a.click();
+
+      saveToSupabase(pid, csvFiltered);
+    }
+  });
+});
+</script>
+</html>
